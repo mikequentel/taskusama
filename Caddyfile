@@ -1,0 +1,21 @@
+{
+    https_port 443
+    log {
+        level DEBUG
+    }
+}
+
+{$SERVER} {
+    tls /{$SERVER_CERT} /{$SERVER_KEY} {
+        on_demand
+    }
+
+    @http {
+        protocol http
+    }
+    redir @http https://{$SERVER}{uri} permanent
+
+    root * /usr/share/caddy
+    file_server
+}
+
