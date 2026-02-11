@@ -7,37 +7,50 @@ services:
     container_name: caddy
     restart: unless-stopped
     ports:
-      - 443:443
+      - "80:80"
+      - "443:443"
     volumes:
-      - $PWD/Caddyfile:/etc/caddy/Caddyfile
-      - $PWD/html:/usr/share/caddy
-      - $PWD/ssl-cert-snakeoil.key:/certs/server.key:ro
-      - $PWD/ssl-cert-snakeoil.pem:/certs/server.cer:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./ssl-cert-snakeoil.key:/certs/server.key:ro
+      - ./ssl-cert-snakeoil.pem:/certs/server.cer:ro
+      - caddy_data:/data
+      - caddy_config:/config
     environment:
       SERVER: localhost
-      SERVER_KEY: '/certs/server.key'
-      SERVER_CERT: '/certs/server.cer'
+      SERVER_KEY: /certs/server.key
+      SERVER_CERT: /certs/server.cer
+    depends_on:
+      - taskusama
 
   taskusama:
     image: fakelassian/taskusama:latest
     container_name: taskusama
     restart: unless-stopped
-    ports:
-      - 8080:8080
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://taskusama:taskusama@postgresql_taskusama:5432/taskusama?sslmode=disable"
+      MIGRATIONS_PATH: "/migrations"
+    volumes:
+      - ./migrations:/migrations:ro
+      # - ./.env:/.env:ro
+    depends_on:
+      postgresql_taskusama:
+        condition: service_healthy
+    expose:
+      - "8080"
 
   postgresql_taskusama:
     image: postgres:18.1-bookworm
     container_name: postgresql_taskusama
     restart: unless-stopped
-    ports:
-      - 5432:5432
-    volumes:
-      - /var/fakelassian-db:/var/lib/postgresql/18/docker
-      - $PWD/ssl-cert-snakeoil.key:/certs/server.key:ro
-      - $PWD/ssl-cert-snakeoil.pem:/certs/server.cer:ro
     environment:
-      SERVER_KEY: '/certs/server.key'
-      SERVER_CERT: '/certs/server.cer'
+      POSTGRES_DB: taskusama
+      POSTGRES_USER: taskusama
+      POSTGRES_PASSWORD: taskusama
+    volumes:
+      - taskusama_db:/var/lib/postgresql/data
+      - ./ssl-cert-snakeoil.key:/certs/server.key:ro
+      - ./ssl-cert-snakeoil.pem:/certs/server.cer:ro
     command:
       - postgres
       - -c
@@ -48,3 +61,17 @@ services:
       - ssl_key_file=/certs/server.key
       - -c
       - ssl_min_protocol_version=TLSv1.2
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Don’t publish 5432 unless you need host access
+    expose:
+      - "5432"
+
+volumes:
+  taskusama_db:
+  caddy_data:
+  caddy_config:
+
