@@ -15,7 +15,6 @@
     }
     redir @http https://{$SERVER}{uri} permanent
 
-    root * /usr/share/caddy
-    file_server
+    reverse_proxy taskusama:8080
 }
 
