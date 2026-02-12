@@ -1,6 +1,10 @@
-.PHONY: all default fmt lint clean build install
+.PHONY: all default fmt lint clean build install image docker
 
-# reproducible build
+# project info
+IMAGE   := fakelassian/taskusama
+VERSION := 1.0.0
+
+# sets reproducible build flags
 GOFLAGS := -trimpath -buildvcs=false
 LDFLAGS := -s -w
 
@@ -36,6 +40,13 @@ install:
 	go install \
 		-ldflags "$(LDFLAGS)" \
 		./cmd/server
+
+# builds Docker image
+image:
+	docker build -t $(IMAGE):$(VERSION) .
+
+# alias
+docker: image
 
 # all
 all: fmt lint clean build install
