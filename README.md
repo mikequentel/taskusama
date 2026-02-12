@@ -27,6 +27,7 @@ sudo make-ssl-cert generate-default-snakeoil --force-overwrite
 ```
 cp /etc/ssl/certs/ssl-cert-snakeoil.pem .
 sudo cp /etc/ssl/private/ssl-cert-snakeoil.key .
+sudo chown $USER:$USER ssl-cert-snakeoil.key
 ```
 
 3. Run the Docker containers: `docker compose up -d`
