@@ -14,4 +14,4 @@ Run the Docker containers: `docker compose up -d`
 
 ## how to use
 
-Navigate in a web browser to [https://localhost/issues]
+Navigate in a web browser to (https://localhost/issues)
