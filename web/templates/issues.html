@@ -1,0 +1,31 @@
+{{ define "content" }}
+<section class="card">
+  <div class="card-header">
+    <h1>Issues</h1>
+    <form class="new-issue"
+          hx-post="/issues"
+          hx-target="#issues-body"
+          hx-swap="afterbegin"
+          hx-on::after-request="this.reset()">
+      <input name="title" placeholder="New issue title…" required />
+      <button type="submit">Add</button>
+    </form>
+  </div>
+  <table class="table">
+    <thead>
+      <tr>
+        <th style="width: 72px;">ID</th>
+        <th>Title</th>
+        <th style="width: 180px;">Status</th>
+        <th style="width: 220px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="issues-body">
+      {{ range .Issues }}
+        {{ template "_issue_row.html" . }}
+      {{ end }}
+    </tbody>
+  </table>
+</section>
+{{ end }}
+

@@ -1,130 +1,152 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"net/http"
-	"os"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
-	"go.uber.org/zap"
-
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
+type IssueStatus string
+
+const (
+	StatusTodo       IssueStatus = "Todo"
+	StatusInProgress IssueStatus = "In Progress"
+	StatusDone       IssueStatus = "Done"
+)
+
+type Issue struct {
+	ID        int
+	Title     string
+	Status    IssueStatus
+	CreatedAt time.Time
+}
+
+type Store struct {
+	mu     sync.Mutex
+	nextID int
+	issues []Issue
+}
+
+func NewStore() *Store {
+	return &Store{
+		nextID: 1,
+		issues: []Issue{
+			{ID: 1, Title: "Create repo", Status: StatusDone, CreatedAt: time.Now().Add(-48 * time.Hour)},
+			{ID: 2, Title: "Wire Gin + templates", Status: StatusInProgress, CreatedAt: time.Now().Add(-2 * time.Hour)},
+			{ID: 3, Title: "Add Postgres schema", Status: StatusTodo, CreatedAt: time.Now()},
+		},
+	}
+}
+
+func (s *Store) List() []Issue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Issue, len(s.issues))
+	copy(out, s.issues)
+	return out
+}
+
+func (s *Store) Create(title string) Issue {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	iss := Issue{
+		ID:        s.nextID,
+		Title:     title,
+		Status:    StatusTodo,
+		CreatedAt: time.Now(),
+	}
+	s.nextID++
+	s.issues = append([]Issue{iss}, s.issues...)
+	return iss
+}
+
+func (s *Store) SetStatus(id int, st IssueStatus) (Issue, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.issues {
+		if s.issues[i].ID == id {
+			s.issues[i].Status = st
+			return s.issues[i], true
+		}
+	}
+	return Issue{}, false
+}
+
 func main() {
-	// Load .env (no error if missing; handy for prod where env vars are injected)
-	_ = godotenv.Load()
+	store := NewStore()
 
-	// Structured logger
-	logger, err := zap.NewProduction()
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = logger.Sync() }()
-
-	// Config
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		logger.Fatal("DATABASE_URL not set")
-	}
-
-	migrationsPath := os.Getenv("MIGRATIONS_PATH") // e.g. "./migrations"
-	if migrationsPath == "" {
-		migrationsPath = "./migrations"
-	}
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	// Run migrations at startup
-	if err := runMigrations(dbURL, migrationsPath, logger); err != nil {
-		logger.Fatal("migrations failed", zap.Error(err))
-	}
-
-	// DB Pool
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	dbpool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		logger.Fatal("failed to create db pool", zap.Error(err))
-	}
-	defer dbpool.Close()
-
-	if err := dbpool.Ping(ctx); err != nil {
-		logger.Fatal("database not reachable", zap.Error(err))
-	}
-
-	// Gin
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(ginZapLogger(logger)) // structured request logs
 
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	// Templates + static
+	r.LoadHTMLGlob("web/templates/*")
+	r.Static("/static", "web/static")
+
+	// Pages
+	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/issues")
 	})
 
-	logger.Info("listening", zap.String("port", port))
-	if err := r.Run(":" + port); err != nil {
-		logger.Fatal("server exited", zap.Error(err))
-	}
-}
+	r.GET("/issues", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "layout.html", gin.H{
+			"Title":  "Taskusama — Issues",
+			"Active": "issues",
+			"Issues": store.List(),
+		})
+	})
 
-func runMigrations(dbURL, migrationsPath string, logger *zap.Logger) error {
-	sourceURL := fmt.Sprintf("file://%s", migrationsPath)
-	m, err := migrate.New(sourceURL, dbURL)
-	if err != nil {
-		return err
-	}
-	defer func() { _, _ = m.Close() }()
+	// HTMX: render only the <tbody> rows (used after create)
+	r.GET("/issues/rows", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "issues.html", gin.H{
+			"Issues": store.List(),
+		})
+	})
 
-	err = m.Up()
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return err
-	}
+	// Create (HTMX)
+	r.POST("/issues", func(c *gin.Context) {
+		title := c.PostForm("title")
+		if title == "" {
+			c.String(http.StatusBadRequest, "title is required")
+			return
+		}
+		issue := store.Create(title)
 
-	if errors.Is(err, migrate.ErrNoChange) {
-		logger.Info("migrations up-to-date")
-	} else {
-		logger.Info("migrations applied")
-	}
-	return nil
-}
+		// Return a single row fragment so HTMX can prepend it.
+		c.HTML(http.StatusOK, "_issue_row.html", gin.H{
+			"Issue": issue,
+		})
+	})
 
-// Minimal Gin middleware that logs requests with zap.
-func ginZapLogger(logger *zap.Logger) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
-
-		c.Next()
-
-		latency := time.Since(start)
-		status := c.Writer.Status()
-		clientIP := c.ClientIP()
-		method := c.Request.Method
-
-		if raw != "" {
-			path = path + "?" + raw
+	// Update status (HTMX)
+	r.POST("/issues/:id/status", func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.String(http.StatusBadRequest, "bad id")
+			return
+		}
+		status := IssueStatus(c.PostForm("status"))
+		switch status {
+		case StatusTodo, StatusInProgress, StatusDone:
+		default:
+			c.String(http.StatusBadRequest, "bad status")
+			return
 		}
 
-		logger.Info("http_request",
-			zap.Int("status", status),
-			zap.String("method", method),
-			zap.String("path", path),
-			zap.String("client_ip", clientIP),
-			zap.Duration("latency", latency),
-		)
-	}
+		issue, ok := store.SetStatus(id, status)
+		if !ok {
+			c.String(http.StatusNotFound, "not found")
+			return
+		}
+
+		// Return updated row HTML
+		c.HTML(http.StatusOK, "_issue_row.html", gin.H{
+			"Issue": issue,
+		})
+	})
+
+	_ = r.Run(":8080")
 }
 
