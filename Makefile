@@ -44,6 +44,7 @@ install:
 # builds Docker image
 image:
 	docker build -t $(IMAGE):$(VERSION) .
+	docker image tag $(IMAGE):$(VERSION) $(IMAGE):latest
 
 # alias
 docker: image
