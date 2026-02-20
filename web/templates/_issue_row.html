@@ -1,0 +1,29 @@
+{{/* expects dot = Issue */}}
+<tr id="issue-{{ .ID }}">
+  <td>#{{ .ID }}</td>
+  <td>{{ .Title }}</td>
+  <td><span class="badge">{{ .Status }}</span></td>
+  <td class="actions">
+    <button hx-post="/issues/{{ .ID }}/status"
+            hx-vals='{"status":"Todo"}'
+            hx-target="#issue-{{ .ID }}"
+            hx-swap="outerHTML">
+      Todo
+    </button>
+
+    <button hx-post="/issues/{{ .ID }}/status"
+            hx-vals='{"status":"In Progress"}'
+            hx-target="#issue-{{ .ID }}"
+            hx-swap="outerHTML">
+      In Progress
+    </button>
+
+    <button hx-post="/issues/{{ .ID }}/status"
+            hx-vals='{"status":"Done"}'
+            hx-target="#issue-{{ .ID }}"
+            hx-swap="outerHTML">
+      Done
+    </button>
+  </td>
+</tr>
+

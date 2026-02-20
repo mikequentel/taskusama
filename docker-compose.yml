@@ -33,9 +33,9 @@ services:
     volumes:
       - ./migrations:/migrations:ro
       # - ./.env:/.env:ro
-    depends_on:
-      postgresql_taskusama:
-        condition: service_healthy
+    # depends_on:
+    #   postgresql_taskusama:
+    #     condition: service_healthy
     expose:
       - "8080"
 
